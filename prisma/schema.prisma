@@ -1,0 +1,41 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Celebration {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  celebrant String
+  title     String
+  deadline  String?
+  createdAt DateTime @default(now())
+
+  submissions Submission[]
+  finalVideo  FinalVideo?
+}
+
+model Submission {
+  id            String   @id @default(cuid())
+  celebrationId String
+  name          String
+  message       String?
+  videoUrl      String
+  approved      Boolean  @default(true)
+  order         Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  celebration Celebration @relation(fields: [celebrationId], references: [id])
+}
+
+model FinalVideo {
+  id            String   @id @default(cuid())
+  celebrationId String   @unique
+  videoUrl      String
+  createdAt     DateTime @default(now())
+
+  celebration Celebration @relation(fields: [celebrationId], references: [id])
+}
