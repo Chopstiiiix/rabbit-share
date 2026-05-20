@@ -3,19 +3,24 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 model Celebration {
-  id        String   @id @default(cuid())
-  slug      String   @unique
-  celebrant String
-  title     String
-  deadline  String?
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  organizerId    String?
+  category       String   @default("birthday")
+  customCategory String?
+  celebrant      String
+  title          String
+  deadline       String?
+  createdAt      DateTime @default(now())
 
   submissions Submission[]
   finalVideo  FinalVideo?
+
+  @@index([organizerId])
 }
 
 model Submission {

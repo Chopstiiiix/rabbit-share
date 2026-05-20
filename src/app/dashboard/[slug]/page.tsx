@@ -1,12 +1,27 @@
 import { prisma } from "@/lib/prisma";
+import { importLegacyDuplicateSubmissions } from "@/lib/legacy-celebrations";
+import AdminDashboardLink from "@/components/admin-dashboard-link";
+import FinalVideoCard from "@/components/final-video-card";
+import { UserButton } from "@clerk/nextjs";
+import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import InviteLinkActions from "./invite-link-actions";
+import SubmissionVideoPreview from "./submission-video-preview";
 
 export default async function DashboardPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ render?: string; renderError?: string }>;
 }) {
+  const { userId, redirectToSignIn } = await auth();
+
+  if (!userId) {
+    return redirectToSignIn();
+  }
+
   const { slug } = await params;
 
   const celebration = await prisma.celebration.findUnique({
@@ -20,91 +35,104 @@ export default async function DashboardPage({
   });
 
   if (!celebration) notFound();
+  if (celebration.organizerId && celebration.organizerId !== userId) {
+    notFound();
+  }
 
-  const inviteLink = `${process.env.NEXT_PUBLIC_APP_URL}/invite/${slug}`;
-  const watchLink = `${process.env.NEXT_PUBLIC_APP_URL}/watch/${slug}`;
+  await importLegacyDuplicateSubmissions(celebration);
+
+  const refreshedCelebration = await prisma.celebration.findUnique({
+    where: { slug },
+    include: {
+      submissions: {
+        orderBy: { createdAt: "asc" },
+      },
+      finalVideo: true,
+    },
+  });
+
+  if (!refreshedCelebration) notFound();
+
+  const { render, renderError } = await searchParams;
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const inviteLink = `${appUrl}/invite/${slug}`;
+  const watchLink = `${appUrl}/watch/${slug}`;
 
   return (
     <main className="min-h-screen bg-neutral-950 px-6 py-10 text-white">
       <section className="mx-auto max-w-2xl space-y-6">
-        <div className="rounded-3xl bg-neutral-900 p-6">
-          <h1 className="text-3xl font-bold">{celebration.title}</h1>
+        <header className="motion-rise flex items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/dashboard"
+              className="pressable-card rounded-full border border-white/10 bg-neutral-900 px-4 py-2 text-sm font-semibold text-white"
+            >
+              My events
+            </Link>
+            <AdminDashboardLink />
+          </div>
+          <UserButton />
+        </header>
+
+        <div className="motion-rise rounded-3xl bg-neutral-900 p-6">
+          <h1 className="text-3xl font-bold">{refreshedCelebration.title}</h1>
 
           <p className="mt-4 text-neutral-300">Share this invite link:</p>
 
-          <input
-            readOnly
-            value={inviteLink}
-            className="mt-2 w-full rounded-2xl bg-neutral-800 px-4 py-3"
-          />
+          <InviteLinkActions inviteLink={inviteLink} />
 
-          <div className="mt-5 flex gap-3">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <Link
               href={`/invite/${slug}`}
-              className="rounded-full bg-white px-5 py-3 font-semibold text-black"
+              className="pressable-cta inline-flex min-h-14 items-center justify-center rounded-[22px] bg-white px-5 py-3 text-center text-sm font-semibold leading-tight text-black sm:text-base"
             >
               Open invite page
             </Link>
 
-            <form action={`/api/render/${slug}`} method="POST">
-              <button className="rounded-full bg-pink-500 px-5 py-3 font-semibold">
+            <form action={`/api/render/${slug}`} method="POST" className="min-w-0">
+              <button className="pressable-cta cta-pulse inline-flex min-h-14 w-full items-center justify-center rounded-[22px] bg-pink-500 px-5 py-3 text-center text-sm font-semibold leading-tight text-white sm:text-base">
                 Generate final video
               </button>
             </form>
           </div>
         </div>
 
-        <div className="rounded-3xl bg-neutral-900 p-6">
+        {render === "success" && (
+          <p className="motion-pop rounded-2xl border border-green-400/20 bg-green-950/60 px-4 py-3 text-sm text-green-100">
+            Final video generated. The celebrant watch link is ready below.
+          </p>
+        )}
+
+        {renderError && (
+          <p className="motion-pop rounded-2xl border border-red-400/20 bg-red-950/70 px-4 py-3 text-sm text-red-100">
+            {renderError}
+          </p>
+        )}
+
+        <div className="motion-rise rounded-3xl bg-neutral-900 p-6">
           <h2 className="text-xl font-bold">
-            Submissions: {celebration.submissions.length}
+            Submissions: {refreshedCelebration.submissions.length}
           </h2>
 
           <div className="mt-4 space-y-4">
-            {celebration.submissions.map((submission) => (
-              <div
+            {refreshedCelebration.submissions.map((submission, index) => (
+              <SubmissionVideoPreview
                 key={submission.id}
-                className="rounded-2xl bg-neutral-800 p-4"
-              >
-                <p className="font-semibold">{submission.name}</p>
-                {submission.message && (
-                  <p className="text-sm text-neutral-300">
-                    {submission.message}
-                  </p>
-                )}
-
-                <video
-                  src={submission.videoUrl}
-                  controls
-                  className="mt-3 w-full rounded-xl"
-                />
-              </div>
+                name={submission.name}
+                message={submission.message}
+                videoUrl={submission.videoUrl}
+                index={index}
+              />
             ))}
           </div>
         </div>
 
-        {celebration.finalVideo && (
-          <div className="rounded-3xl bg-neutral-900 p-6">
-            <h2 className="text-xl font-bold">Final video ready</h2>
-
-            <video
-              src={celebration.finalVideo.videoUrl}
-              controls
-              className="mt-4 w-full rounded-xl"
-            />
-
-            <input
-              readOnly
-              value={watchLink}
-              className="mt-4 w-full rounded-2xl bg-neutral-800 px-4 py-3"
-            />
-
-            <Link
-              href={`/watch/${slug}`}
-              className="mt-4 inline-flex rounded-full bg-pink-500 px-5 py-3 font-semibold"
-            >
-              Open celebrant link
-            </Link>
-          </div>
+        {refreshedCelebration.finalVideo && (
+          <FinalVideoCard
+            videoUrl={refreshedCelebration.finalVideo.videoUrl}
+            watchLink={watchLink}
+          />
         )}
       </section>
     </main>

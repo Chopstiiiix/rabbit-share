@@ -1,9 +1,13 @@
 import { prisma } from "@/lib/prisma";
-import { mkdir, writeFile } from "fs/promises";
-import { nanoid } from "nanoid";
-import path from "path";
+import { resolveSubmissionCelebration } from "@/lib/legacy-celebrations";
 
 export const runtime = "nodejs";
+
+type SubmitVideoRequest = {
+  name?: string;
+  message?: string;
+  videoUrl?: string;
+};
 
 export async function POST(
   req: Request,
@@ -11,35 +15,28 @@ export async function POST(
 ) {
   const { slug } = await params;
 
-  const celebration = await prisma.celebration.findUnique({
+  const inviteCelebration = await prisma.celebration.findUnique({
     where: { slug },
   });
 
-  if (!celebration) {
+  if (!inviteCelebration) {
     return Response.json({ error: "Celebration not found" }, { status: 404 });
   }
 
-  const formData = await req.formData();
+  const celebration = await resolveSubmissionCelebration(inviteCelebration);
 
-  const name = String(formData.get("name") || "");
-  const message = String(formData.get("message") || "");
-  const video = formData.get("video") as File | null;
+  const body = (await req.json()) as SubmitVideoRequest;
+  const name = String(body.name || "").trim();
+  const message = String(body.message || "").trim();
+  const videoUrl = String(body.videoUrl || "").trim();
 
-  if (!name || !video) {
+  if (!name || !videoUrl) {
     return Response.json({ error: "Missing fields" }, { status: 400 });
   }
 
-  const bytes = await video.arrayBuffer();
-  const buffer = Buffer.from(bytes);
-
-  const uploadDir = path.join(process.cwd(), "public", "uploads");
-  await mkdir(uploadDir, { recursive: true });
-
-  const ext = video.name.split(".").pop() || "mp4";
-  const filename = `${nanoid()}.${ext}`;
-  const filepath = path.join(uploadDir, filename);
-
-  await writeFile(filepath, buffer);
+  if (!videoUrl.startsWith("https://")) {
+    return Response.json({ error: "Invalid video URL" }, { status: 400 });
+  }
 
   const count = await prisma.submission.count({
     where: { celebrationId: celebration.id },
@@ -50,7 +47,7 @@ export async function POST(
       celebrationId: celebration.id,
       name,
       message,
-      videoUrl: `/uploads/${filename}`,
+      videoUrl,
       order: count,
     },
   });

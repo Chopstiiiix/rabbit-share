@@ -1,0 +1,6 @@
+.env*
+dev.db
+dev.db-journal
+public/uploads
+public/final
+public/normalized
